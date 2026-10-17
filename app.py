@@ -9,16 +9,37 @@ from datetime import datetime
 import openpyxl
 
 app = Flask(__name__)
-app.secret_key = 'clave_secreta_denier_inventario_total'
+app.secret_key = 'clave_secreta_denier_inventario_maestro'
 
-# Configuración de carpeta para archivos subidos (Devoluciones)
+# Carpeta para archivos subidos (Devoluciones)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # ==========================================
-# BASES DE DATOS Y MEMORIA UNIFICADA
+# LOGO SVG OFICIAL DENIER
+# ==========================================
+LOGO_DENIER_SVG = """
+<svg width="70" height="70" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M50 15 L85 50 L50 85 L15 50 Z" stroke="#38bdf8" stroke-width="4" fill="none"/>
+    <path d="M50 25 L75 50 L50 75 L25 50 Z" stroke="#38bdf8" stroke-width="3" fill="none"/>
+    <path d="M30 30 L70 70 M70 30 L30 70" stroke="#38bdf8" stroke-width="5" stroke-linecap="round"/>
+    <path d="M50 15 L50 85 M15 50 L85 50" stroke="#38bdf8" stroke-width="5" stroke-linecap="round"/>
+</svg>
+"""
+
+LOGO_PRINT_SVG = """
+<svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M50 15 L85 50 L50 85 L15 50 Z" stroke="#000" stroke-width="4" fill="none"/>
+    <path d="M50 25 L75 50 L50 75 L25 50 Z" stroke="#000" stroke-width="3" fill="none"/>
+    <path d="M30 30 L70 70 M70 30 L30 70" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+    <path d="M50 15 L50 85 M15 50 L85 50" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+</svg>
+"""
+
+# ==========================================
+# MEMORIA DE DATOS
 # ==========================================
 usuarios_db = [
     { 'id': 1, 'email': 'controlprod_1@deniersa.com', 'password': '123', 'nombre': 'Administrador General', 'modulos': ['admin', 'hilos', 'cruda', 'devo'] },
@@ -56,9 +77,11 @@ devoluciones_procesada = [
         'archivo': None 
     }
 ]
+despachos_devoluciones_history = []
+contador_despacho_devo = 1
 
 # ==========================================
-# PLANTILLAS HTML
+# PLANTILLAS BASE Y LOGIN
 # ==========================================
 LOGIN_TEMPLATE = """
 <!DOCTYPE html>
@@ -68,73 +91,41 @@ LOGIN_TEMPLATE = """
     <title>DENIER - INVENTARIO</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-black text-slate-100 min-h-screen flex items-center justify-center p-6">
-    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-sm">
-        <div class="text-center mb-6">
-            <div class="flex justify-center mb-2">
-                <svg width="80" height="80" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M30 30L70 70M70 30L30 70" stroke="#38bdf8" stroke-width="6" stroke-linecap="round"/>
-                    <path d="M50 20L50 80M20 50L80 50" stroke="#38bdf8" stroke-width="6" stroke-linecap="round"/>
-                    <path d="M35 20L65 80M65 20L35 80" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
-                </svg>
+<body class="bg-black text-slate-100 min-h-screen flex flex-col justify-between p-6">
+    <div class="flex-grow flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+            <div class="text-center mb-6">
+                <div class="flex justify-center mb-2">
+                    """ + LOGO_DENIER_SVG + """
+                </div>
+                <h1 class="text-2xl font-black tracking-widest text-white uppercase">DENIER</h1>
+                <div class="border-b border-slate-800 my-4"></div>
             </div>
-            <h1 class="text-2xl font-black tracking-widest text-white uppercase">DENIER</h1>
-            <div class="border-b border-slate-800 my-4"></div>
-        </div>
-        {% if error %}
-        <div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded-lg mb-4 text-xs font-bold text-center">{{ error }}</div>
-        {% endif %}
-        <form action="/login" method="POST" class="space-y-4">
-            <div>
-                <label class="block text-xs font-bold mb-1.5 text-slate-300">Email</label>
-                <input type="email" name="email" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500" placeholder="controlprod_1@deniersa.com">
+            
+            {% if error %}
+            <div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded-lg mb-4 text-xs font-bold text-center">{{ error }}</div>
+            {% endif %}
+
+            <form action="/login" method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold mb-1.5 text-slate-300">Email</label>
+                    <input type="email" name="email" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="controlprod_1@deniersa.com">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold mb-1.5 text-slate-300">Password</label>
+                    <input type="password" name="password" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="••••••••">
+                </div>
+                <button type="submit" class="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-lg font-bold text-sm shadow">Log in</button>
+            </form>
+
+            <div class="flex justify-between items-center mt-6 text-xs text-slate-400">
+                <span class="text-slate-500">¿Problemas?</span>
+                <a href="/reset-password-form" class="text-teal-400 font-semibold hover:underline">Reset Password</a>
             </div>
-            <div>
-                <label class="block text-xs font-bold mb-1.5 text-slate-300">Password</label>
-                <input type="password" name="password" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500" placeholder="••••••••">
-            </div>
-            <button type="submit" class="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-lg font-bold text-sm shadow transition duration-200">Log in</button>
-        </form>
-        <div class="flex justify-between items-center mt-6 text-xs text-slate-400">
-            <span class="text-slate-500">¿Problemas?</span>
-            <a href="/reset-password-form" class="text-teal-400 font-semibold hover:underline">Reset Password</a>
         </div>
     </div>
-</body>
-</html>
-"""
-
-RESET_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Recuperar Contraseña - DENIER</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-black text-slate-100 min-h-screen flex items-center justify-center p-6">
-    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-sm">
-        <div class="text-center mb-6">
-            <h1 class="text-xl font-bold text-white">Restablecer Contraseña</h1>
-            <p class="text-xs text-slate-400 mt-1">Ingrese su correo corporativo y su nueva clave</p>
-            <div class="border-b border-slate-800 my-4"></div>
-        </div>
-        {% if error %}<div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded-lg mb-4 text-xs font-bold text-center">{{ error }}</div>{% endif %}
-        {% if mensaje %}<div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded-lg mb-4 text-xs font-bold text-center">{{ mensaje }}</div>{% endif %}
-        <form action="/procesar-reset" method="POST" class="space-y-4">
-            <div>
-                <label class="block text-xs font-bold mb-1.5 text-slate-300">Correo Corporativo</label>
-                <input type="email" name="email" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="controlprod_1@deniersa.com">
-            </div>
-            <div>
-                <label class="block text-xs font-bold mb-1.5 text-slate-300">Nueva Contraseña</label>
-                <input type="password" name="nueva_password" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="••••••••">
-            </div>
-            <button type="submit" class="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-lg font-bold text-sm shadow">Actualizar Contraseña</button>
-        </form>
-        <div class="text-center mt-6">
-            <a href="/login-form" class="text-xs text-teal-400 font-semibold hover:underline">← Volver al Login</a>
-        </div>
+    <div class="text-center text-xs text-slate-500 font-semibold tracking-wider">
+        Creado: Estuardo Alonzo
     </div>
 </body>
 </html>
@@ -148,14 +139,17 @@ HOME_TEMPLATE = """
     <title>DENIER - Panel Principal</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-black text-slate-100 min-h-screen p-8">
-    <div class="max-w-6xl mx-auto">
+<body class="bg-black text-slate-100 min-h-screen p-8 flex flex-col justify-between">
+    <div class="max-w-6xl mx-auto w-full">
         <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl mb-8 flex justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-black tracking-wide text-white">DENIER</h1>
-                <p class="text-sm text-slate-400">Usuario: <b class="text-teal-400">{{ session.get('nombre') }}</b> ({{ session.get('email') }})</p>
+            <div class="flex items-center gap-4">
+                """ + LOGO_DENIER_SVG + """
+                <div>
+                    <h1 class="text-2xl font-black tracking-wide text-white uppercase">DENIER</h1>
+                    <p class="text-sm text-slate-400">Usuario: <b class="text-teal-400">{{ session.get('nombre') }}</b> ({{ session.get('email') }})</p>
+                </div>
             </div>
-            <a href="/logout" class="bg-red-950 text-red-300 border border-red-800 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-900 transition">Cerrar Sesión</a>
+            <a href="/logout" class="bg-red-950 text-red-300 border border-red-800 px-4 py-2 rounded-xl text-sm font-semibold">Cerrar Sesión</a>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -165,7 +159,7 @@ HOME_TEMPLATE = """
                     <h2 class="text-xl font-bold text-teal-400 mb-2">Módulo de Hilos</h2>
                     <p class="text-sm text-slate-400 mb-4">Control de inventario Denier y Artitex, packing lists y devoluciones.</p>
                 </div>
-                <a href="/hilos" class="bg-teal-700 hover:bg-teal-600 text-white text-center py-3 rounded-xl font-medium shadow transition">Entrar a Hilos</a>
+                <a href="/hilos" class="bg-teal-700 hover:bg-teal-600 text-white text-center py-3 rounded-xl font-medium shadow">Entrar a Hilos</a>
             </div>
             {% endif %}
 
@@ -175,7 +169,7 @@ HOME_TEMPLATE = """
                     <h2 class="text-xl font-bold text-teal-400 mb-2">Módulo de Tela Cruda</h2>
                     <p class="text-sm text-slate-400 mb-4">Control de rollos, cargas masivas Knitopia y reingresos Magic Dyeing.</p>
                 </div>
-                <a href="/cruda" class="bg-teal-700 hover:bg-teal-600 text-white text-center py-3 rounded-xl font-medium shadow transition">Entrar a Tela Cruda</a>
+                <a href="/cruda" class="bg-teal-700 hover:bg-teal-600 text-white text-center py-3 rounded-xl font-medium shadow">Entrar a Tela Cruda</a>
             </div>
             {% endif %}
 
@@ -183,9 +177,9 @@ HOME_TEMPLATE = """
             <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-rose-400 mb-2">Módulo Devoluciones</h2>
-                    <p class="text-sm text-slate-400 mb-4">Control de devoluciones de tela procesada y gestión de archivos PDF.</p>
+                    <p class="text-sm text-slate-400 mb-4">Control de tela devuelta, gestión de PDF y salidas por venta o reproceso.</p>
                 </div>
-                <a href="/devo" class="bg-rose-700 hover:bg-rose-600 text-white text-center py-3 rounded-xl font-medium shadow transition">Entrar a Devoluciones</a>
+                <a href="/devo" class="bg-rose-700 hover:bg-rose-600 text-white text-center py-3 rounded-xl font-medium shadow">Entrar a Devoluciones</a>
             </div>
             {% endif %}
         </div>
@@ -216,7 +210,7 @@ HOME_TEMPLATE = """
                     </div>
                 </div>
                 <div class="md:col-span-3 flex justify-end">
-                    <button type="submit" class="bg-purple-700 hover:bg-purple-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium shadow transition">Registrar Nuevo Usuario</button>
+                    <button type="submit" class="bg-purple-700 hover:bg-purple-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium">Registrar Nuevo Usuario</button>
                 </div>
             </form>
 
@@ -224,7 +218,7 @@ HOME_TEMPLATE = """
             <table class="w-full text-left text-sm">
                 <thead>
                     <tr class="border-b border-slate-800 text-slate-400">
-                        <th class="p-3">Correo</th><th class="p-3">Nombre</th><th class="p-3">Contraseña</th><th class="p-3">Módulos Asignados</th><th class="p-3 text-center">Acciones</th>
+                        <th class="p-3">Correo</th><th class="p-3">Nombre</th><th class="p-3">Contraseña</th><th class="p-3">Módulos</th><th class="p-3 text-center">Acciones</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
@@ -236,9 +230,9 @@ HOME_TEMPLATE = """
                         <td class="p-3">{% for m in u.modulos %}<span class="bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded text-xs font-bold uppercase mr-1">{{ m }}</span>{% endfor %}</td>
                         <td class="p-3 text-center">
                             <div class="flex justify-center gap-2">
-                                <a href="/editar-usuario/{{ u.id }}" class="bg-amber-950 text-amber-300 border border-amber-800 px-3 py-1 rounded-lg text-xs font-semibold hover:bg-amber-900">Editar Rol</a>
+                                <a href="/editar-usuario/{{ u.id }}" class="bg-amber-950 text-amber-300 border border-amber-800 px-3 py-1 rounded-lg text-xs font-semibold">Editar</a>
                                 {% if u.email != 'controlprod_1@deniersa.com' %}
-                                <a href="/eliminar-usuario/{{ u.id }}" onclick="return confirm('¿Seguro deseas eliminar este usuario?');" class="bg-red-950 text-red-300 border border-red-800 px-3 py-1 rounded-lg text-xs font-semibold hover:bg-red-900">Eliminar</a>
+                                <a href="/eliminar-usuario/{{ u.id }}" onclick="return confirm('¿Seguro deseas eliminar este usuario?');" class="bg-red-950 text-red-300 border border-red-800 px-3 py-1 rounded-lg text-xs font-semibold">Eliminar</a>
                                 {% endif %}
                             </div>
                         </td>
@@ -249,6 +243,29 @@ HOME_TEMPLATE = """
         </div>
         {% endif %}
     </div>
+    <div class="text-center text-xs text-slate-500 font-semibold tracking-wider mt-8">
+        Creado: Estuardo Alonzo
+    </div>
+</body>
+</html>
+"""
+
+RESET_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Restablecer Contraseña - DENIER</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-black text-slate-100 min-h-screen flex items-center justify-center p-6">
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+        <h1 class="text-xl font-bold text-white mb-2">Restablecer Contraseña</h1>
+        {% if error %}<div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded mb-4 text-xs font-bold text-center">{{ error }}</div>{% endif %}
+        {% if mensaje %}<div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded mb-4 text-xs font-bold text-center">{{ mensaje }}</div>{% endif %}
+        <form action="/procesar-reset" method="POST" class="space-y-4">
+            <input type="email" name="email" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="Correo corporativo">
+            <input type="password" name="nueva_password" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white" placeholder="Nueva contraseña">
+            <button type="submit" class="w-full bg-teal-700 text-white py-2.5 rounded-lg font-bold text-sm">Actualizar</button>
+        </form>
+        <div class="text-center mt-6"><a href="/login-form" class="text-xs text-teal-400 font-semibold hover:underline">← Volver al Login</a></div>
+    </div>
 </body>
 </html>
 """
@@ -256,31 +273,14 @@ HOME_TEMPLATE = """
 EDITAR_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Editar Permisos - DENIER</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
+<head><meta charset="UTF-8"><title>Editar Permisos</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-black text-slate-100 min-h-screen flex items-center justify-center p-6">
     <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md">
         <h1 class="text-xl font-bold text-purple-400 mb-2">Editar Permisos de Usuario</h1>
-        <p class="text-xs text-slate-400 mb-6">Usuario: <b class="text-white">{{ usuario.email }}</b></p>
         <form action="/actualizar-usuario/{{ usuario.id }}" method="POST" class="space-y-4">
-            <div><label class="block text-xs font-bold mb-1 text-slate-300">Nombre Completo</label><input type="text" name="nombre" value="{{ usuario.nombre }}" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white"></div>
-            <div><label class="block text-xs font-bold mb-1 text-slate-300">Contraseña</label><input type="text" name="password" value="{{ usuario.password }}" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white"></div>
-            <div>
-                <label class="block text-xs font-bold mb-2 text-slate-300">Modificar Módulos Permitidos:</label>
-                <div class="space-y-2 bg-black p-4 rounded-lg border border-slate-800">
-                    <label class="flex items-center space-x-2 text-sm cursor-pointer text-slate-300"><input type="checkbox" name="modulos" value="hilos" {% if 'hilos' in usuario.modulos %}checked{% endif %} class="w-4 h-4 text-teal-600 rounded"><span>Bodega Hilos</span></label>
-                    <label class="flex items-center space-x-2 text-sm cursor-pointer text-slate-300"><input type="checkbox" name="modulos" value="cruda" {% if 'cruda' in usuario.modulos %}checked{% endif %} class="w-4 h-4 text-teal-600 rounded"><span>Bodega Tela Cruda</span></label>
-                    <label class="flex items-center space-x-2 text-sm cursor-pointer text-slate-300"><input type="checkbox" name="modulos" value="devo" {% if 'devo' in usuario.modulos %}checked{% endif %} class="w-4 h-4 text-rose-600 rounded"><span>Devoluciones</span></label>
-                    <label class="flex items-center space-x-2 text-sm cursor-pointer text-slate-300"><input type="checkbox" name="modulos" value="admin" {% if 'admin' in usuario.modulos %}checked{% endif %} class="w-4 h-4 text-purple-600 rounded"><span>Administrador Total</span></label>
-                </div>
-            </div>
-            <div class="flex justify-between items-center pt-4">
-                <a href="/" class="text-xs text-slate-400 underline">Cancelar</a>
-                <button type="submit" class="bg-purple-700 hover:bg-purple-600 text-white px-5 py-2 rounded-xl text-xs font-bold shadow">Guardar Cambios</button>
-            </div>
+            <input type="text" name="nombre" value="{{ usuario.nombre }}" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white">
+            <input type="text" name="password" value="{{ usuario.password }}" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-sm text-white">
+            <button type="submit" class="bg-purple-700 text-white px-5 py-2 rounded-xl text-xs font-bold w-full">Guardar Cambios</button>
         </form>
     </div>
 </body>
@@ -288,17 +288,15 @@ EDITAR_TEMPLATE = """
 """
 
 # ==========================================
-# RUTAS PRINCIPALES Y LOGIN
+# RUTAS AUTENTICACIÓN
 # ==========================================
 @app.route('/')
 def index():
-    if 'email' not in session:
-        return redirect(url_for('login_form'))
+    if 'email' not in session: return redirect(url_for('login_form'))
     return render_template_string(HOME_TEMPLATE, usuarios_db=usuarios_db)
 
 @app.route('/login-form')
-def login_form():
-    return render_template_string(LOGIN_TEMPLATE, error=None)
+def login_form(): return render_template_string(LOGIN_TEMPLATE, error=None)
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -313,26 +311,22 @@ def login():
     return render_template_string(LOGIN_TEMPLATE, error="Correo o contraseña incorrectos")
 
 @app.route('/reset-password-form')
-def reset_password_form():
-    return render_template_string(RESET_TEMPLATE, error=None, mensaje=None)
+def reset_password_form(): return render_template_string(RESET_TEMPLATE, error=None, mensaje=None)
 
 @app.route('/procesar-reset', methods=['POST'])
 def procesar_reset():
     email = request.form.get('email', '').strip()
-    nueva_password = request.form.get('nueva_password', '').strip()
+    nueva = request.form.get('nueva_password', '').strip()
     usuario = next((u for u in usuarios_db if u['email'] == email), None)
-    if not usuario:
-        return render_template_string(RESET_TEMPLATE, error="El correo ingresado no está registrado.", mensaje=None)
-    usuario['password'] = nueva_password
+    if not usuario: return render_template_string(RESET_TEMPLATE, error="El correo no está registrado.", mensaje=None)
+    usuario['password'] = nueva
     return render_template_string(RESET_TEMPLATE, error=None, mensaje="¡Contraseña actualizada con éxito!")
 
 @app.route('/crear-usuario', methods=['POST'])
 def crear_usuario():
-    if 'admin' not in session.get('modulos', []):
-        return redirect(url_for('index'))
+    if 'admin' not in session.get('modulos', []): return redirect(url_for('index'))
     nuevo_email = request.form.get('email', '').strip()
-    if any(u['email'] == nuevo_email for u in usuarios_db):
-        return redirect(url_for('index'))
+    if any(u['email'] == nuevo_email for u in usuarios_db): return redirect(url_for('index'))
     nuevo = {
         'id': max([u['id'] for u in usuarios_db], default=0) + 1,
         'email': nuevo_email,
@@ -345,15 +339,13 @@ def crear_usuario():
 
 @app.route('/editar-usuario/<int:uid>')
 def editar_usuario(uid):
-    if 'admin' not in session.get('modulos', []):
-        return redirect(url_for('index'))
+    if 'admin' not in session.get('modulos', []): return redirect(url_for('index'))
     usuario = next((u for u in usuarios_db if u['id'] == uid), None)
     return render_template_string(EDITAR_TEMPLATE, usuario=usuario)
 
 @app.route('/actualizar-usuario/<int:uid>', methods=['POST'])
 def actualizar_usuario(uid):
-    if 'admin' not in session.get('modulos', []):
-        return redirect(url_for('index'))
+    if 'admin' not in session.get('modulos', []): return redirect(url_for('index'))
     usuario = next((u for u in usuarios_db if u['id'] == uid), None)
     if usuario:
         usuario['nombre'] = request.form.get('nombre', '').strip()
@@ -363,8 +355,7 @@ def actualizar_usuario(uid):
 
 @app.route('/eliminar-usuario/<int:uid>')
 def eliminar_usuario(uid):
-    if 'admin' not in session.get('modulos', []):
-        return redirect(url_for('index'))
+    if 'admin' not in session.get('modulos', []): return redirect(url_for('index'))
     global usuarios_db
     usuarios_db = [u for u in usuarios_db if u['id'] != uid or u['email'] == 'controlprod_1@deniersa.com']
     return redirect(url_for('index'))
@@ -382,30 +373,25 @@ HTML_TEMPLATE_HILOS = """
 <!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"><title>DENIER - Hilos</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-black text-slate-100 min-h-screen p-6">
-    <div class="max-w-7xl mx-auto">
+<body class="bg-black text-slate-100 min-h-screen p-6 flex flex-col justify-between">
+    <div class="max-w-7xl mx-auto w-full">
         <div class="flex justify-between items-center mb-6 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-            <div>
-                <h1 class="text-2xl font-black tracking-wider uppercase text-white">DENIER - HILOS</h1>
-                <p class="text-sm text-slate-400">Módulo de Control de Conos y Hilos</p>
-            </div>
-            <div>
-                {% if session.get('es_admin_hilos') %}
-                    <span class="bg-emerald-950 text-emerald-400 border border-emerald-800 text-xs px-3 py-1 rounded-full font-bold">Admin Activo</span>
-                    <a href="/hilos/logout-admin" class="text-xs text-red-400 underline ml-2">Salir</a>
-                {% else %}
-                    <a href="/hilos/login-admin-form" class="text-xs text-teal-400 underline font-medium">Acceso Admin</a>
-                {% endif %}
+            <div class="flex items-center gap-4">
+                """ + LOGO_DENIER_SVG + """
+                <div>
+                    <h1 class="text-2xl font-black tracking-wider uppercase text-white">DENIER - HILOS</h1>
+                    <p class="text-sm text-slate-400">Control de Conos e Hilos</p>
+                </div>
             </div>
         </div>
 
         <div class="flex flex-wrap gap-3 mb-6">
-            <a href="/" class="px-4 py-3 rounded-xl font-bold bg-slate-800 text-white shadow hover:bg-slate-700">← Menú DENIER</a>
-            <a href="/hilos" class="px-4 py-3 rounded-xl font-semibold bg-teal-700 text-white shadow">Inventario Activo</a>
-            <a href="/hilos/agotados" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Hilos Sin Stock</a>
-            <a href="/hilos/historial" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Historial Packing List</a>
-            <a href="/hilos/devoluciones-modulo" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Módulo Devoluciones</a>
-            <a href="/hilos/exportar-excel" class="px-4 py-3 rounded-xl font-semibold bg-emerald-800 text-white shadow ml-auto">Descargar Excel</a>
+            <a href="/" class="px-4 py-3 rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700">← Menú DENIER</a>
+            <a href="/hilos" class="px-4 py-3 rounded-xl font-semibold bg-teal-700 text-white">Inventario Activo</a>
+            <a href="/hilos/agotados" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Hilos Sin Stock</a>
+            <a href="/hilos/historial" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Historial Packing List</a>
+            <a href="/hilos/devoluciones-modulo" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Módulo Devoluciones</a>
+            <a href="/hilos/exportar-excel" class="px-4 py-3 rounded-xl font-semibold bg-emerald-800 text-white ml-auto">Descargar Excel</a>
         </div>
 
         <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl mb-8">
@@ -462,15 +448,87 @@ HTML_TEMPLATE_HILOS = """
             </div>
         </form>
     </div>
+    <div class="text-center text-xs text-slate-500 font-semibold tracking-wider mt-8">Creado: Estuardo Alonzo</div>
     <script>function toggleOC() { const t = document.getElementById('tipoSelect').value; document.getElementById('ocDiv').style.display = t === 'Artitex' ? 'none' : 'block'; }</script>
+</body>
+</html>
+"""
+
+PACKING_VIEW_HILOS_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>PACKING LIST - DENIER</title>
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; background: #fff; color: #000; padding: 30px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 13px; }
+        th { background-color: #f2f2f2; }
+        .total-box { margin-top: 20px; font-size: 15px; font-weight: bold; text-align: right; }
+        .footer { margin-top: 50px; display: flex; justify-content: space-between; font-size: 12px; }
+        .signature { border-top: 1px solid #000; width: 200px; text-align: center; padding-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            """ + LOGO_PRINT_SVG + """
+            <h1 style="margin: 5px 0 0 0; font-size: 22px;">DENIER S.A.</h1>
+            <p style="margin: 0; font-size: 12px;">PACKING LIST - DEPARTAMENTO DE HILOS</p>
+        </div>
+        <div style="text-align: right;">
+            <h2 style="margin: 0; font-size: 18px;">NO: {{ numero }}</h2>
+            <p style="margin: 3px 0;"><strong>Cliente:</strong> {{ cliente }}</p>
+            <p style="margin: 0;"><strong>Orden:</strong> {{ orden }}</p>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Lote</th>
+                <th>Código / Composición</th>
+                <th>Calibre</th>
+                <th>Ubicación</th>
+                <th>Conos Despachados</th>
+                <th>Kilos Despachados</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in seleccionados %}
+            <tr>
+                <td><strong>{{ item.lote }}</strong></td>
+                <td>{{ item.codigo }} - {{ item.composicion }}</td>
+                <td>{{ item.calibre }}</td>
+                <td>{{ item.ubicacion }}</td>
+                <td>{{ item.req_conos }} conos</td>
+                <td>{{ "%.2f"|format(item.req_kilos) }} kg</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="total-box">
+        TOTAL DESPACHO: {{ total_conos }} CONOS / {{ "%.2f"|format(total_kilos) }} KG
+    </div>
+
+    <div class="footer">
+        <div class="signature">Despachado Por</div>
+        <div class="signature">Recibido Conforme</div>
+    </div>
+    <div style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 8px 16px; cursor: pointer;">🖨 Imprimir Packing List</button>
+        <br><br><a href="/hilos">← Volver a Hilos</a>
+    </div>
 </body>
 </html>
 """
 
 @app.route('/hilos')
 def hilos_index():
-    if 'email' not in session or ('hilos' not in session.get('modulos', []) and 'admin' not in session.get('modulos', [])):
-        return redirect(url_for('index'))
+    if 'email' not in session or ('hilos' not in session.get('modulos', []) and 'admin' not in session.get('modulos', [])): return redirect(url_for('index'))
     query = request.args.get('q', '').lower()
     filtro_tipo = request.args.get('filtro_tipo', '')
     filtro_prov = request.args.get('filtro_prov', '')
@@ -509,7 +567,7 @@ def hilos_exportar_excel():
     io_b = io.BytesIO()
     wb.save(io_b)
     io_b.seek(0)
-    return send_file(io_b, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Hilos.xlsx')
+    return send_file(io_b, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Hilos_Denier.xlsx')
 
 @app.route('/hilos/agotados')
 def hilos_agotados():
@@ -521,7 +579,7 @@ def hilos_generar_packing_form():
     ids = request.form.getlist('hilos_sel')
     if not ids: return redirect(url_for('hilos_index'))
     seleccionados = [i for i in inventario_hilos if i['id'] in [int(x) for x in ids]]
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-6"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold mb-6 text-purple-400">Configurar Despacho</h1><form action="/hilos/procesar-packing-multiple" method="POST" class="space-y-6"><div class="grid grid-cols-2 gap-4 pb-4 border-b border-slate-800"><input type="text" name="cliente" class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Cliente..."><input type="text" name="orden" class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Orden..."></div>{% for item in seleccionados %}<input type="hidden" name="hilos_sel" value="{{ item.id }}"><div class="p-4 bg-black rounded-xl border border-slate-800"><p class="font-bold text-teal-400">Lote: {{ item.lote }} | Ubicación: {{ item.ubicacion }}</p><div class="grid grid-cols-2 gap-4 mt-2"><input type="number" step="0.01" name="req_kilos_{{ item.id }}" value="{{ item.kilos }}" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><input type="number" name="req_conos_{{ item.id }}" value="{{ item.conos }}" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"></div></div>{% endfor %}<button type="submit" class="bg-purple-700 text-white px-6 py-3 rounded-xl font-medium w-full">Generar Packing List</button></form></div></body></html>""", seleccionados=seleccionados)
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-6"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold mb-6 text-purple-400">Configurar Despacho</h1><form action="/hilos/procesar-packing-multiple" method="POST" class="space-y-6"><div class="grid grid-cols-2 gap-4 pb-4 border-b border-slate-800"><input type="text" name="cliente" class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Cliente..." required><input type="text" name="orden" class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Orden..." required></div>{% for item in seleccionados %}<input type="hidden" name="hilos_sel" value="{{ item.id }}"><div class="p-4 bg-black rounded-xl border border-slate-800"><p class="font-bold text-teal-400">Lote: {{ item.lote }} | Disponibles: {{ item.kilos }} kg / {{ item.conos }} conos</p><div class="grid grid-cols-2 gap-4 mt-2"><input type="number" step="0.01" name="req_kilos_{{ item.id }}" value="{{ item.kilos }}" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><input type="number" name="req_conos_{{ item.id }}" value="{{ item.conos }}" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"></div></div>{% endfor %}<button type="submit" class="bg-purple-700 text-white px-6 py-3 rounded-xl font-medium w-full">Generar Packing List</button></form></div></body></html>""", seleccionados=seleccionados)
 
 @app.route('/hilos/procesar-packing-multiple', methods=['POST'])
 def hilos_procesar_packing_multiple():
@@ -546,28 +604,32 @@ def hilos_procesar_packing_multiple():
     reg = {'id_historial': len(packing_history_hilos)+1, 'numero': f"{contador_packing_hilos:03d}", 'cliente': request.form.get('cliente') or 'General', 'orden': request.form.get('orden') or 'N/A', 'total_kilos': tot_k, 'total_conos': tot_c, 'seleccionados': sel}
     packing_history_hilos.append(reg)
     contador_packing_hilos += 1
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><title>Packing List</title></head><body style="font-family: monospace; background: #fff; color: #000; padding: 20px;"><h2>PACKING LIST - HILO No {{ numero }}</h2><p>Cliente: {{ cliente }} | Orden: {{ orden }}</p><hr>{% for item in seleccionados %}<p>Lote: {{ item.lote }} | Kilos: {{ item.req_kilos }} | Conos: {{ item.req_conos }} | Ubicación: {{ item.ubicacion }}</p>{% endfor %}<hr><p><strong>Totales: {{ total_conos }} Conos / {{ "%.2f"|format(total_kilos) }} Kg</strong></p><br><a href="/hilos">Volver al Inventario</a></body></html>""", numero=reg['numero'], cliente=reg['cliente'], orden=reg['orden'], seleccionados=sel, total_kilos=tot_k, total_conos=tot_c)
+    return render_template_string(PACKING_VIEW_HILOS_TEMPLATE, numero=reg['numero'], cliente=reg['cliente'], orden=reg['orden'], seleccionados=sel, total_kilos=tot_k, total_conos=tot_c)
 
 @app.route('/hilos/historial')
 def hilos_historial():
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-emerald-400 mb-6">Historial Packing Lists</h1><a href="/hilos" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-800"><th class="p-2">Número</th><th class="p-2">Cliente</th><th class="p-2">Totales</th><th class="p-2">Acciones</th></tr></thead><tbody>{% for p in historial %}<tr class="border-b border-slate-800"><td class="p-2 font-bold">N {{ p.numero }}</td><td class="p-2">{{ p.cliente }}</td><td class="p-2">{{ p.total_kilos }} kg / {{ p.total_conos }} conos</td><td class="p-2"><a href="/hilos/ver-packing/{{ p.id_historial }}" target="_blank" class="text-teal-400 underline">Ver</a></td></tr>{% endfor %}</tbody></table></div></body></html>""", historial=packing_history_hilos)
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-emerald-400 mb-6">Historial Packing Lists Hilos</h1><a href="/hilos" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-800"><th class="p-2">Número</th><th class="p-2">Cliente</th><th class="p-2">Totales</th><th class="p-2">Acciones</th></tr></thead><tbody>{% for p in historial %}<tr class="border-b border-slate-800"><td class="p-2 font-bold">N {{ p.numero }}</td><td class="p-2">{{ p.cliente }}</td><td class="p-2">{{ p.total_kilos }} kg / {{ p.total_conos }} conos</td><td class="p-2"><a href="/hilos/ver-packing/{{ p.id_historial }}" target="_blank" class="text-teal-400 underline">Ver / Imprimir</a></td></tr>{% endfor %}</tbody></table></div></body></html>""", historial=packing_history_hilos)
 
 @app.route('/hilos/ver-packing/<int:hid>')
 def hilos_ver_packing(hid):
     r = next((p for p in packing_history_hilos if p['id_historial'] == hid), None)
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><title>Packing List</title></head><body style="font-family: monospace; background: #fff; color: #000; padding: 20px;"><h2>PACKING LIST - HILO No {{ numero }}</h2><p>Cliente: {{ cliente }} | Orden: {{ orden }}</p><hr>{% for item in seleccionados %}<p>Lote: {{ item.lote }} | Kilos: {{ item.req_kilos }} | Conos: {{ item.req_conos }} | Ubicación: {{ item.ubicacion }}</p>{% endfor %}<hr><p><strong>Totales: {{ total_conos }} Conos / {{ "%.2f"|format(total_kilos) }} Kg</strong></p><br><a href="/hilos">Volver al Inventario</a></body></html>""", numero=r['numero'], cliente=r['cliente'], orden=r['orden'], seleccionados=r['seleccionados'], total_kilos=r['total_kilos'], total_conos=r['total_conos'])
+    return render_template_string(PACKING_VIEW_HILOS_TEMPLATE, numero=r['numero'], cliente=r['cliente'], orden=r['orden'], seleccionados=r['seleccionados'], total_kilos=r['total_kilos'], total_conos=r['total_conos'])
 
 @app.route('/hilos/devoluciones-modulo')
 def hilos_devoluciones_modulo():
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-5xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-rose-400 mb-6">Módulo de Devolución Parcial</h1><a href="/hilos" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a><form action="/hilos/procesar-devolucion-parcial" method="POST" class="space-y-4 bg-black p-6 rounded-xl border border-slate-800"><select name="historial_id" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white"><option value="">-- Elige Packing List --</option>{% for p in historial %}<option value="{{ p.id_historial }}">N {{ p.numero }} | Cliente: {{ p.cliente }}</option>{% endfor %}</select><div class="grid grid-cols-2 gap-4"><input type="number" step="0.01" name="ret_kilos" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Kilos a retornar"><input type="number" name="ret_conos" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Conos a retornar"></div><input type="text" name="motivo" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Motivo..."><button type="submit" class="bg-rose-700 text-white px-6 py-2 rounded-xl font-medium">Procesar Reingreso</button></form></div></body></html>""", historial=packing_history_hilos)
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-5xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-rose-400 mb-6">Módulo de Devolución Parcial - Hilos</h1><a href="/hilos" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a>{% if error %}<div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded mb-4 text-xs font-bold">{{ error }}</div>{% endif %}<form action="/hilos/procesar-devolucion-parcial" method="POST" class="space-y-4 bg-black p-6 rounded-xl border border-slate-800"><select name="historial_id" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white"><option value="">-- Elige Packing List --</option>{% for p in historial %}<option value="{{ p.id_historial }}">N {{ p.numero }} | Cliente: {{ p.cliente }} (Max: {{ p.total_kilos }} kg / {{ p.total_conos }} conos)</option>{% endfor %}</select><div class="grid grid-cols-2 gap-4"><input type="number" step="0.01" name="ret_kilos" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Kilos a retornar"><input type="number" name="ret_conos" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Conos a retornar"></div><input type="text" name="motivo" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Motivo de devolución..."><button type="submit" class="bg-rose-700 text-white px-6 py-2 rounded-xl font-medium">Procesar Reingreso</button></form></div></body></html>""", historial=packing_history_hilos, error=request.args.get('error'))
 
 @app.route('/hilos/procesar-devolucion-parcial', methods=['POST'])
 def hilos_procesar_devolucion_parcial():
     hid = int(request.form.get('historial_id'))
+    ret_k = float(request.form.get('ret_kilos'))
+    ret_c = int(request.form.get('ret_conos'))
     p = next((x for x in packing_history_hilos if x['id_historial'] == hid), None)
     if p:
-        p['total_kilos'] += float(request.form.get('ret_kilos'))
-        p['total_conos'] += int(request.form.get('ret_conos'))
+        if ret_k > p['total_kilos'] or ret_c > p['total_conos']:
+            return redirect(url_for('hilos_devoluciones_modulo', error="⚠ ERROR: No puedes reingresar más kilos o conos de los despachados en este Packing List."))
+        p['total_kilos'] -= ret_k
+        p['total_conos'] -= ret_c
     return redirect(url_for('hilos_devoluciones_modulo'))
 
 
@@ -578,23 +640,26 @@ HTML_TEMPLATE_TELA = """
 <!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"><title>DENIER - Tela Cruda</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-black text-slate-100 min-h-screen p-6">
-    <div class="max-w-7xl mx-auto">
+<body class="bg-black text-slate-100 min-h-screen p-6 flex flex-col justify-between">
+    <div class="max-w-7xl mx-auto w-full">
         <div class="flex justify-between items-center mb-6 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-            <div>
-                <h1 class="text-2xl font-black tracking-wider uppercase text-white">DENIER - TELA CRUDA</h1>
-                <p class="text-sm text-slate-400">Módulo de Tejeduría y Rollos Crudos</p>
+            <div class="flex items-center gap-4">
+                """ + LOGO_DENIER_SVG + """
+                <div>
+                    <h1 class="text-2xl font-black tracking-wider uppercase text-white">DENIER - TELA CRUDA</h1>
+                    <p class="text-sm text-slate-400">Control de Tejeduría y Rollos Crudos</p>
+                </div>
             </div>
         </div>
 
         <div class="flex flex-wrap gap-3 mb-6">
-            <a href="/" class="px-4 py-3 rounded-xl font-bold bg-slate-800 text-white shadow hover:bg-slate-700">← Menú DENIER</a>
-            <a href="/cruda" class="px-4 py-3 rounded-xl font-semibold bg-teal-700 text-white shadow">Inventario Cruda</a>
-            <a href="/cruda/dashboard" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Dashboard KPIs</a>
-            <a href="/cruda/carga-masiva-form" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Carga Masiva (Knitopia)</a>
-            <a href="/cruda/historial-tela" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Historial Despachos</a>
-            <a href="/cruda/reingresos-modulo" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700 shadow">Módulo Reingresos</a>
-            <a href="/cruda/exportar-excel-tela" class="px-4 py-3 rounded-xl font-semibold bg-emerald-800 text-white shadow ml-auto">Descargar Excel</a>
+            <a href="/" class="px-4 py-3 rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700">← Menú DENIER</a>
+            <a href="/cruda" class="px-4 py-3 rounded-xl font-semibold bg-teal-700 text-white">Inventario Cruda</a>
+            <a href="/cruda/dashboard" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Dashboard KPIs</a>
+            <a href="/cruda/carga-masiva-form" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Carga Masiva (Knitopia)</a>
+            <a href="/cruda/historial-tela" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Historial Despachos</a>
+            <a href="/cruda/reingresos-modulo" class="px-4 py-3 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-700">Módulo Reingresos</a>
+            <a href="/cruda/exportar-excel-tela" class="px-4 py-3 rounded-xl font-semibold bg-emerald-800 text-white ml-auto">Descargar Excel</a>
         </div>
 
         <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl mb-8">
@@ -639,14 +704,84 @@ HTML_TEMPLATE_TELA = """
             </div>
         </form>
     </div>
+    <div class="text-center text-xs text-slate-500 font-semibold tracking-wider mt-8">Creado: Estuardo Alonzo</div>
+</body>
+</html>
+"""
+
+PACKING_VIEW_TELA_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>PACKING LIST TELA - DENIER</title>
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; background: #fff; color: #000; padding: 30px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 13px; }
+        th { background-color: #f2f2f2; }
+        .total-box { margin-top: 20px; font-size: 15px; font-weight: bold; text-align: right; }
+        .footer { margin-top: 50px; display: flex; justify-content: space-between; font-size: 12px; }
+        .signature { border-top: 1px solid #000; width: 200px; text-align: center; padding-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            """ + LOGO_PRINT_SVG + """
+            <h1 style="margin: 5px 0 0 0; font-size: 22px;">DENIER S.A.</h1>
+            <p style="margin: 0; font-size: 12px;">DESPACHO TELA CRUDA / TEJEDURÍA</p>
+        </div>
+        <div style="text-align: right;">
+            <h2 style="margin: 0; font-size: 18px;">NO: {{ numero }}</h2>
+            <p style="margin: 3px 0;"><strong>Destino:</strong> {{ cliente }}</p>
+            <p style="margin: 0;"><strong>Orden:</strong> {{ orden }}</p>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Orden Compra</th>
+                <th>Lote Tela</th>
+                <th>Rollo</th>
+                <th>Ubicación</th>
+                <th>Kilos Despachados</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in seleccionados %}
+            <tr>
+                <td>{{ item.oc }}</td>
+                <td><strong>{{ item.lote_tela }}</strong></td>
+                <td>{{ item.rollo }}</td>
+                <td>{{ item.ubicacion }}</td>
+                <td>{{ "%.2f"|format(item.req_kilos) }} kg</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="total-box">
+        TOTAL DESPACHO TELA: {{ "%.2f"|format(total_kilos) }} KG
+    </div>
+
+    <div class="footer">
+        <div class="signature">Despachado Por</div>
+        <div class="signature">Recibido Conforme</div>
+    </div>
+    <div style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 8px 16px; cursor: pointer;">🖨 Imprimir Packing List</button>
+        <br><br><a href="/cruda">← Volver a Tela Cruda</a>
+    </div>
 </body>
 </html>
 """
 
 @app.route('/cruda')
 def cruda_index():
-    if 'email' not in session or ('cruda' not in session.get('modulos', []) and 'admin' not in session.get('modulos', [])):
-        return redirect(url_for('index'))
+    if 'email' not in session or ('cruda' not in session.get('modulos', []) and 'admin' not in session.get('modulos', [])): return redirect(url_for('index'))
     query = request.args.get('q', '').lower()
     filtro_prov = request.args.get('filtro_prov', '')
     proveedores_unicos = sorted(list(set(i['proveedor'] for i in inventario_tela)))
@@ -679,7 +814,7 @@ def cruda_exportar_excel_tela():
     io_b = io.BytesIO()
     wb.save(io_b)
     io_b.seek(0)
-    return send_file(io_b, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Tela.xlsx')
+    return send_file(io_b, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Tela_Cruda_Denier.xlsx')
 
 @app.route('/cruda/dashboard')
 def cruda_dashboard():
@@ -688,7 +823,7 @@ def cruda_dashboard():
 
 @app.route('/cruda/carga-masiva-form')
 def cruda_carga_masiva_form():
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl"><h1 class="text-2xl font-bold text-amber-400 mb-4">Carga Masiva de Inventario</h1><div class="mb-6 flex gap-4"><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium inline-block">Volver</a><a href="/cruda/descargar-plantilla" class="bg-emerald-800 text-white px-4 py-2 rounded-xl text-sm font-medium inline-block">Descargar Plantilla Excel</a></div>{% if msg %}<div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded mb-4 text-sm font-bold">{{ msg }}</div>{% endif %}<form action="/cruda/procesar-carga-masiva" method="POST" enctype="multipart/form-data" class="space-y-4 bg-black p-6 rounded-xl border border-slate-800"><input type="file" name="excel_file" accept=".xlsx" required class="w-full p-2.5 rounded-lg border border-slate-700 bg-slate-900 text-white"><button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-medium w-full">Cargar al Sistema</button></form></div></body></html>""", msg=None)
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl"><h1 class="text-2xl font-bold text-amber-400 mb-4">Carga Masiva de Inventario (Knitopia)</h1><div class="mb-6 flex gap-4"><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium inline-block">Volver</a><a href="/cruda/descargar-plantilla" class="bg-emerald-800 text-white px-4 py-2 rounded-xl text-sm font-medium inline-block">Descargar Plantilla Excel</a></div>{% if msg %}<div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded mb-4 text-sm font-bold">{{ msg }}</div>{% endif %}<form action="/cruda/procesar-carga-masiva" method="POST" enctype="multipart/form-data" class="space-y-4 bg-black p-6 rounded-xl border border-slate-800"><input type="file" name="excel_file" accept=".xlsx" required class="w-full p-2.5 rounded-lg border border-slate-700 bg-slate-900 text-white"><button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-medium w-full">Cargar al Sistema</button></form></div></body></html>""", msg=None)
 
 @app.route('/cruda/descargar-plantilla')
 def cruda_descargar_plantilla():
@@ -699,7 +834,7 @@ def cruda_descargar_plantilla():
     excel_io = io.BytesIO()
     wb.save(excel_io)
     excel_io.seek(0)
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Plantilla.xlsx')
+    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Plantilla_Knitopia.xlsx')
 
 @app.route('/cruda/procesar-carga-masiva', methods=['POST'])
 def cruda_procesar_carga_masiva():
@@ -710,194 +845,11 @@ def cruda_procesar_carga_masiva():
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row[0] and row[4] is not None:
                 inventario_tela.append({'id': len(inventario_tela)+1, 'oc': str(row[0]), 'proveedor': str(row[1]), 'lote_tela': str(row[2]), 'rollo': str(row[3]), 'kilos': float(row[4]), 'ubicacion': str(row[5]) if len(row)>5 and row[5] else 'A-1'})
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl"><h1 class="text-2xl font-bold text-amber-400 mb-4">Carga Masiva</h1><div class="mb-6"><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium">Volver a Tela Cruda</a></div><div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded mb-4 text-sm font-bold">¡Carga exitosa!</div></div></body></html>""")
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl"><h1 class="text-2xl font-bold text-amber-400 mb-4">Carga Masiva</h1><div class="mb-6"><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium">Volver a Tela Cruda</a></div><div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded mb-4 text-sm font-bold">¡Carga masiva procesada con éxito!</div></div></body></html>""")
 
 @app.route('/cruda/generar-packing-tela-form', methods=['POST'])
 def cruda_generar_packing_tela_form():
     ids = request.form.getlist('telas_sel')
     if not ids: return redirect(url_for('cruda_index'))
     seleccionados = [i for i in inventario_tela if i['id'] in [int(x) for x in ids]]
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-6"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold mb-6 text-purple-400">Configurar Despacho</h1><form action="/cruda/procesar-packing-tela-multiple" method="POST" class="space-y-6"><input type="text" name="cliente" required class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Cliente destino..."><input type="text" name="orden" required class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Orden...">{% for item in seleccionados %}<input type="hidden" name="telas_sel" value="{{ item.id }}"><div class="p-4 bg-black rounded-xl border border-slate-800"><p class="font-bold text-teal-400">Rollo: {{ item.rollo }} | Ubicación: {{ item.ubicacion }}</p><input type="number" step="0.01" name="req_kilos_{{ item.id }}" value="{{ item.kilos }}" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-white mt-2"></div>{% endfor %}<button type="submit" class="bg-purple-700 text-white px-6 py-3 rounded-xl font-medium w-full">Generar Packing List</button></form></div></body></html>""", seleccionados=seleccionados)
-
-@app.route('/cruda/procesar-packing-tela-multiple', methods=['POST'])
-def cruda_procesar_packing_tela_multiple():
-    global contador_packing_tela
-    ids = request.form.getlist('telas_sel')
-    sel = []
-    tot = 0
-    for sid in ids:
-        item = next((i for i in inventario_tela if i['id'] == int(sid)), None)
-        if item:
-            req = float(request.form.get(f'req_kilos_{item["id"]}', 0))
-            item['kilos'] -= req
-            copia = item.copy()
-            copia['req_kilos'] = req
-            sel.append(copia)
-            tot += req
-    reg = {'id_historial': len(packing_tela_history)+1, 'numero': f"{contador_packing_tela:03d}", 'cliente': request.form.get('cliente'), 'orden': request.form.get('orden'), 'total_kilos': tot, 'seleccionados': sel}
-    packing_tela_history.append(reg)
-    contador_packing_tela += 1
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><title>Packing List</title></head><body style="font-family: monospace; background: #fff; color: #000; padding: 20px;"><h2>PACKING LIST TELA No {{ numero }}</h2><p>Destino: {{ cliente }} | Orden: {{ orden }}</p><hr>{% for item in seleccionados %}<p>Rollo: {{ item.rollo }} | Kilos: {{ item.req_kilos }} | Ubicación: {{ item.ubicacion }}</p>{% endfor %}<hr><p><strong>Total Kilos: {{ "%.2f"|format(total_kilos) }} Kg</strong></p><br><a href="/cruda">Volver al Inventario</a></body></html>""", numero=reg['numero'], cliente=reg['cliente'], orden=reg['orden'], seleccionados=sel, total_kilos=tot)
-
-@app.route('/cruda/historial-tela')
-def cruda_historial_tela():
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-emerald-400 mb-6">Historial Despachos</h1><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-800"><th class="p-2">Número</th><th class="p-2">Destino</th><th class="p-2">Kilos</th><th class="p-2">Acción</th></tr></thead><tbody>{% for p in historial %}<tr class="border-b border-slate-800"><td class="p-2 font-bold">N {{ p.numero }}</td><td class="p-2">{{ p.cliente }}</td><td class="p-2">{{ "%.2f"|format(p.total_kilos) }} kg</td><td class="p-2"><a href="/cruda/ver-packing-tela/{{ p.id_historial }}" target="_blank" class="text-teal-400 underline">Ver</a></td></tr>{% endfor %}</tbody></table></div></body></html>""", historial=packing_tela_history)
-
-@app.route('/cruda/ver-packing-tela/<int:hid>')
-def cruda_ver_packing_tela(hid):
-    r = next((p for p in packing_tela_history if p['id_historial'] == hid), None)
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><title>Packing List</title></head><body style="font-family: monospace; background: #fff; color: #000; padding: 20px;"><h2>PACKING LIST TELA No {{ numero }}</h2><p>Destino: {{ cliente }} | Orden: {{ orden }}</p><hr>{% for item in seleccionados %}<p>Rollo: {{ item.rollo }} | Kilos: {{ item.req_kilos }} | Ubicación: {{ item.ubicacion }}</p>{% endfor %}<hr><p><strong>Total Kilos: {{ "%.2f"|format(total_kilos) }} Kg</strong></p><br><a href="/cruda">Volver al Inventario</a></body></html>""", numero=r['numero'], cliente=r['cliente'], orden=r['orden'], seleccionados=r['seleccionados'], total_kilos=r['total_kilos'])
-
-@app.route('/cruda/reingresos-modulo')
-def cruda_reingresos_modulo():
-    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-8"><div class="max-w-5xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold text-rose-400 mb-6">Módulo de Reingresos</h1><a href="/cruda" class="bg-slate-800 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium mb-6 inline-block">Volver</a><form action="/cruda/procesar-reingreso-tela" method="POST" class="space-y-4 bg-black p-6 rounded-xl border border-slate-800"><select name="historial_id" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white"><option value="">-- Elige Despacho --</option>{% for p in historial %}<option value="{{ p.id_historial }}">N {{ p.numero }} | Destino: {{ p.cliente }}</option>{% endfor %}</select><input type="number" step="0.01" name="ret_kilos" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Kilos a reingresar"><input type="text" name="motivo" required class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white" placeholder="Motivo..."><button type="submit" class="bg-rose-700 text-white px-6 py-2 rounded-xl font-medium">Reingresar</button></form></div></body></html>""", historial=packing_tela_history)
-
-@app.route('/cruda/procesar-reingreso-tela', methods=['POST'])
-def cruda_procesar_reingreso_tela():
-    hid = int(request.form.get('historial_id'))
-    ret_k = float(request.form.get('ret_kilos'))
-    p = next((x for x in packing_tela_history if x['id_historial'] == hid), None)
-    if p:
-        p['total_kilos'] += ret_k
-    return redirect(url_for('cruda_reingresos_modulo'))
-
-
-# ==========================================
-# MÓDULO DEVOLUCIONES (/devo)
-# ==========================================
-HTML_TEMPLATE_DEVOLUCION = """
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><title>DENIER - Devoluciones Procesada</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-black text-slate-100 min-h-screen p-6">
-    <div class="max-w-7xl mx-auto">
-        <div class="flex justify-between items-center mb-6 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-            <div>
-                <h1 class="text-2xl font-black tracking-wider uppercase text-white">DENIER - TELA PROCESADA DEVUELTA</h1>
-                <p class="text-sm text-slate-400">Control de devoluciones y gestión avanzada de archivos PDF/Escáner</p>
-            </div>
-        </div>
-        <div class="flex flex-wrap gap-3 mb-6">
-            <a href="/" class="px-4 py-3 rounded-xl font-bold bg-slate-800 text-white shadow hover:bg-slate-700">← Menú DENIER</a>
-            <a href="/devo" class="px-4 py-3 rounded-xl font-semibold bg-rose-700 text-white shadow">Devoluciones Activas</a>
-            <a href="/devo/exportar-excel-devolucion" class="px-4 py-3 rounded-xl font-semibold bg-emerald-800 text-white shadow ml-auto">Descargar Excel</a>
-        </div>
-        {% if mensaje %}<div class="bg-emerald-950 border border-emerald-800 text-emerald-300 p-3 rounded-xl mb-6 text-sm font-bold text-center">{{ mensaje }}</div>{% endif %}
-        {% if error %}<div class="bg-red-950 border border-red-800 text-red-300 p-3 rounded-xl mb-6 text-sm font-bold text-center">{{ error }}</div>{% endif %}
-
-        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl mb-8">
-            <h2 class="text-xl font-bold mb-4 text-rose-400">Registrar Nueva Tela Devuelta por Cliente</h2>
-            <form action="/devo/guardar-devolucion" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div><label class="block text-sm mb-1 text-slate-300">Cliente</label><input type="text" name="cliente" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">No. de Lote</label><input type="text" name="lote" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Tela (Tipo y Composición)</label><input type="text" name="tela" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Color / Tono</label><input type="text" name="color" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Cantidad de Rollos</label><input type="number" name="rollos" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Kilos Totales</label><input type="number" step="0.01" name="kilos" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Yardas Totales</label><input type="number" step="0.01" name="yardas" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Calidad</label><select name="calidad" class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white"><option value="Primera">Primera</option><option value="Segunda">Segunda</option><option value="Rechazada">Rechazada</option></select></div>
-                <div><label class="block text-sm mb-1 text-slate-300">Ubicación</label><input type="text" name="ubicacion" required class="w-full p-2.5 bg-black border border-slate-700 rounded-lg text-white" placeholder="Rack 3 / A-1"></div>
-                <div class="md:col-span-3"><label class="block text-sm mb-1 text-slate-300">Archivo de Respaldo / Escáner (PDF o Imagen)</label><input type="file" name="archivo_devolucion" accept=".pdf,.png,.jpg,.jpeg" class="w-full p-2 bg-black border border-slate-700 rounded-lg text-sm text-slate-300"></div>
-                <div class="md:col-span-3 flex justify-end"><button type="submit" class="bg-rose-700 hover:bg-rose-600 text-white px-6 py-2.5 rounded-xl font-medium">Registrar Devolución</button></div>
-            </form>
-        </div>
-
-        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl overflow-x-auto">
-            <table class="w-full text-left">
-                <thead><tr class="border-b border-slate-800 text-sm text-slate-400"><th class="p-3">Cliente</th><th class="p-3">Lote</th><th class="p-3">Tela / Color</th><th class="p-3">Rollos</th><th class="p-3">Kilos / Yardas</th><th class="p-3">Calidad / Ubicación</th><th class="p-3">Archivo de Respaldo</th></tr></thead>
-                <tbody class="divide-y divide-slate-800 text-sm">
-                    {% for item in resultados %}
-                    <tr>
-                        <td class="p-3 font-bold text-rose-400">{{ item.cliente }}</td><td class="p-3">{{ item.lote }}</td><td class="p-3">{{ item.tela }}<br><span class="text-xs text-slate-400">{{ item.color }}</span></td>
-                        <td class="p-3 font-bold">{{ item.rollos }} rollos</td><td class="p-3 text-rose-300 font-bold">{{ "%.2f"|format(item.kilos) }} kg<br><span class="text-xs text-slate-400">{{ "%.2f"|format(item.yardas) }} yds</span></td>
-                        <td><span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800">{{ item.calidad }}</span><div class="text-xs text-emerald-400 mt-1 font-semibold">{{ item.ubicacion }}</div></td>
-                        <td class="p-3">
-                            {% if item.archivo %}
-                                <div class="mb-2 bg-slate-950 p-2 rounded border border-slate-800 flex items-center justify-between">
-                                    <a href="/devo/ver-archivo/{{ item.archivo }}" target="_blank" class="text-teal-400 text-xs">📄 {{ item.archivo }}</a>
-                                    <a href="/devo/eliminar-archivo/{{ item.id }}" class="text-red-400 text-xs bg-red-950 border border-red-800 px-1 rounded">Quitar</a>
-                                </div>
-                            {% else %}
-                                <div class="mb-1 text-xs text-amber-400">Sin archivo</div>
-                            {% endif %}
-                            <form action="/devo/subir-archivo-devolucion/{{ item.id }}" method="POST" enctype="multipart/form-data" class="flex gap-2 items-center">
-                                <input type="file" name="archivo_devolucion" accept=".pdf,.png,.jpg,.jpeg" required class="text-xs text-slate-400">
-                                <button type="submit" class="bg-slate-800 text-white px-2 py-1 rounded text-xs font-bold">Subir</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-@app.route('/devo')
-def devo_index():
-    if 'email' not in session or ('devo' not in session.get('modulos', []) and 'admin' not in session.get('modulos', [])):
-        return redirect(url_for('index'))
-    query = request.args.get('q', '').lower()
-    resultados = devoluciones_procesada
-    if query: resultados = [i for i in resultados if query in i['cliente'].lower() or query in i['lote'].lower() or query in i['tela'].lower()]
-    return render_template_string(HTML_TEMPLATE_DEVOLUCION, resultados=resultados, query=query, mensaje=request.args.get('mensaje',''), error=request.args.get('error',''))
-
-@app.route('/devo/guardar-devolucion', methods=['POST'])
-def devo_guardar_devolucion():
-    archivo = request.files.get('archivo_devolucion')
-    nombre_archivo = None
-    if archivo and archivo.filename:
-        nombre_archivo = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{archivo.filename}"
-        archivo.save(os.path.join(app.config['UPLOAD_FOLDER'], nombre_archivo))
-    devoluciones_procesada.append({
-        'id': len(devoluciones_procesada) + 1,
-        'cliente': request.form.get('cliente', '').strip(),
-        'lote': request.form.get('lote', '').strip(),
-        'tela': request.form.get('tela', '').strip(),
-        'color': request.form.get('color', '').strip(),
-        'rollos': int(request.form.get('rollos', 0)),
-        'kilos': float(request.form.get('kilos', 0)),
-        'yardas': float(request.form.get('yardas', 0)),
-        'calidad': request.form.get('calidad'),
-        'ubicacion': request.form.get('ubicacion', '').strip(),
-        'archivo': nombre_archivo
-    })
-    return redirect(url_for('devo_index', mensaje="¡Devolución registrada con éxito!"))
-
-@app.route('/devo/subir-archivo-devolucion/<int:dev_id>', methods=['POST'])
-def devo_subir_archivo_devolucion(dev_id):
-    archivo = request.files.get('archivo_devolucion')
-    if archivo and archivo.filename:
-        item = next((i for i in devoluciones_procesada if i['id'] == dev_id), None)
-        if item:
-            nombre_archivo = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{archivo.filename}"
-            archivo.save(os.path.join(app.config['UPLOAD_FOLDER'], nombre_archivo))
-            item['archivo'] = nombre_archivo
-            return redirect(url_for('devo_index', mensaje="¡Archivo actualizado con éxito!"))
-    return redirect(url_for('devo_index', error="No se seleccionó archivo válido."))
-
-@app.route('/devo/ver-archivo/<filename>')
-def devo_ver_archivo(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/devo/eliminar-archivo/<int:dev_id>')
-def devo_eliminar_archivo(dev_id):
-    item = next((i for i in devoluciones_procesada if i['id'] == dev_id), None)
-    if item: item['archivo'] = None
-    return redirect(url_for('devo_index', mensaje="¡Archivo eliminado!"))
-
-@app.route('/devo/exportar-excel-devolucion')
-def devo_exportar_excel_devolucion():
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.append(["Cliente", "Lote", "Tela", "Color", "Rollos", "Kilos", "Yardas", "Calidad", "Ubicación", "Archivo"])
-    for i in devoluciones_procesada: ws.append([i['cliente'], i['lote'], i['tela'], i['color'], i['rollos'], i['kilos'], i['yardas'], i['calidad'], i['ubicacion'], i['archivo'] or 'Sin archivo'])
-    io_b = io.BytesIO()
-    wb.save(io_b)
-    io_b.seek(0)
-    return send_file(io_b, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='Devoluciones.xlsx')
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    return render_template_string("""<!DOCTYPE html><html lang="es"><head><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-black text-slate-100 p-6"><div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow"><h1 class="text-2xl font-bold mb-6 text-purple-400">Configurar Despacho Tela</h1><form action="/cruda/procesar-packing-tela-multiple" method="POST" class="space-y-6"><input type="text" name="cliente" required class="w-full p-3 bg-black border border-slate-700 rounded-lg text-white" placeholder="Cliente destino / Tintorería..."><input
